@@ -133,9 +133,18 @@ async def attack_island(callback: types.CallbackQuery):
     builder.add(types.InlineKeyboardButton(text="В главное меню", callback_url="dummy", callback_data="main_menu"))
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
-async def main():
-    await dp.start_polling(bot)
+import asyncio
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
+
+async def on_startup(bot: Bot):
+    asyncio.create_task(dp.start_polling(bot))
+
+def main():
+    app = web.Application()
+    app.on_startup.append(lambda a: on_startup(bot))
+    web.run_app(app, host="0.0.0.0", port=10000)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
+
