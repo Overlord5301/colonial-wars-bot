@@ -1,16 +1,13 @@
-import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
-# ВСТАВЬТЕ СЮДА ВАШ ТОКЕН МЕЖДУ КАВЫЧКАМИ
+# ВСТАВЬТЕ СЮДА ВАШ ТОКЕН ИЗ BOTFATHER ВНУТРЬ КАВЫЧЕК
 TOKEN = "8810434439:AAEKstgiobq57G7dioP5Z6CgNG9__Nk8_K4"
 
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+bot = telebot.TeleBot(TOKEN)
 
-# Простая база данных игроков в памяти (сбросится при перезапуске сервера)
 players = {}
 
 def get_player(user_id, username):
@@ -25,10 +22,17 @@ def get_player(user_id, username):
         }
     return players[user_id]
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
+def get_main_menu_keyboard():
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("⛵ В гавань", callback_data="harbor"),
+        InlineKeyboardButton("🏝️ Искать остров", callback_data="find_island")
+    )
+    return markup
+
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
     p = get_player(message.from_user.id, message.from_user.username)
-    
     text = (
         f"🏴‍☠️ **Приветствуем, Капитан {p['name']}!** 🏴‍☠️\n\n"
         f"Вы прибыли в Новый Свет. Ваша цель — колонизировать острова!\n\n"
@@ -38,113 +42,101 @@ async def cmd_start(message: types.Message):
         f"💣 Пушки (Артиллерия): {p['cannons']}\n"
         f"🏝️ Захвачено островов: {p['islands']}"
     )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_menu_keyboard())
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_listener(call):
+    p = get_player(call.from_user.id, call.from_user.username)
     
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(text="⛵ В гавань", callback_url="dummy", callback_data="harbor"))
-    builder.add(types.InlineKeyboardButton(text="🏝️ Искать остров", callback_url="dummy", callback_data="find_island"))
-    builder.adjust(2)
-    
-    await message.answer(text, reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data == "harbor")
-async def go_harbor(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    text = f"⛵ **Вы в гавани.** Здесь можно усилить армию.\n💰 Золото: {p['gold']}"
-    
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(text="Купить солдата (10💰)", callback_url="dummy", callback_data="buy_soldier"))
-    builder.add(types.InlineKeyboardButton(text="Купить пушку (30💰)", callback_url="dummy", callback_data="buy_cannon"))
-    builder.add(types.InlineKeyboardButton(text="Назад", callback_url="dummy", callback_data="main_menu"))
-    builder.adjust(1)
-    
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data == "buy_soldier")
-async def buy_soldier(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    if p['gold'] >= 10:
-        p['gold'] -= 10
-        p['soldiers'] += 1
-        await callback.answer("Вы наняли 1 солдата! ⚔️")
-    else:
-        await callback.answer("Недостаточно золота! ❌")
-    await go_harbor(callback)
-
-@dp.callback_query(F.data == "buy_cannon")
-async def buy_cannon(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    if p['gold'] >= 30:
-        p['gold'] -= 30
-        p['cannons'] += 1
-        await callback.answer("Отлита новая пушка! 💣")
-    else:
-        await callback.answer("Недостаточно золота! ❌")
-    await go_harbor(callback)
-
-@dp.callback_query(F.data == "main_menu")
-async def go_main(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    text = (
-        f"💰 Золото: {p['gold']}\n"
-        f"⛵ Корабли: {p['ships']}\n"
-        f"⚔️ Солдаты: {p['soldiers']}\n"
-        f"💣 Пушки: {p['cannons']}\n"
-        f"🏝️ Острова: {p['islands']}"
-    )
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(text="⛵ В гавань", callback_url="dummy", callback_data="harbor"))
-    builder.add(types.InlineKeyboardButton(text="🏝️ Искать остров", callback_url="dummy", callback_data="find_island"))
-    builder.adjust(2)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data == "find_island")
-async def find_island(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    if p['ships'] < 1:
-        await callback.answer("У вас нет кораблей для экспедиции! ❌")
-        return
+    if call.data == "main_menu":
+        text = (
+            f"💰 Золото: {p['gold']}\n"
+            f"⛵ Корабли: {p['ships']}\n"
+            f"⚔️ Солдаты: {p['soldiers']}\n"
+            f"💣 Пушки: {p['cannons']}\n"
+            f"🏝️ Острова: {p['islands']}"
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=get_main_menu_keyboard())
         
-    text = "🏝️ **Обнаружен неизведанный остров!**\nЗащита форта: 15 силы.\n\nОтправить флот на штурм?"
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(text="⚔️ Атаковать!", callback_url="dummy", callback_data="attack_island"))
-    builder.add(types.InlineKeyboardButton(text="🏳️ Отступить", callback_url="dummy", callback_data="main_menu"))
-    builder.adjust(1)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data == "attack_island")
-async def attack_island(callback: types.CallbackQuery):
-    p = get_player(callback.from_user.id, callback.from_user.username)
-    
-    # Очень простая формула боя: пушка дает 5 силы, солдат 1 силу
-    army_power = (p['cannons'] * 5) + p['soldiers']
-    enemy_power = 15
-    
-    if army_power >= enemy_power:
-        p['islands'] += 1
-        p['gold'] += 50
-        # Небольшие потери при штурме
-        if p['soldiers'] > 2: p['soldiers'] -= 2
-        text = "🎉 **Победа!**\nВаша артиллерия разбила стены форта, а пехота захватила остров!\n\n💰 Награда: +50 золота."
-    else:
-        if p['soldiers'] > 4: p['soldiers'] -= 4
-        text = "💥 **Поражение!**\nЗащитники форта потопили лодки десанта. Вы отступили с потерями."
+    elif call.data == "harbor":
+        text = f"⛵ **Вы в гавани.** Здесь можно усилить армию.\n💰 Золото: {p['gold']}"
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("Купить солдата (10💰)", callback_data="buy_soldier"),
+            InlineKeyboardButton("Купить пушку (30💰)", callback_data="buy_cannon"),
+            InlineKeyboardButton("Назад", callback_data="main_menu")
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
         
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(text="В главное меню", callback_url="dummy", callback_data="main_menu"))
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    elif call.data == "buy_soldier":
+        if p['gold'] >= 10:
+            p['gold'] -= 10
+            p['soldiers'] += 1
+            bot.answer_callback_query(call.id, "Вы наняли 1 солдата! ⚔️")
+        else:
+            bot.answer_callback_query(call.id, "Недостаточно золота! ❌")
+        text = f"⛵ **Вы в гавани.** Здесь можно усилить армию.\n💰 Золото: {p['gold']}"
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("Купить солдата (10💰)", callback_data="buy_soldier"),
+            InlineKeyboardButton("Купить пушку (30💰)", callback_data="buy_cannon"),
+            InlineKeyboardButton("Назад", callback_data="main_menu")
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+        
+    elif call.data == "buy_cannon":
+        if p['gold'] >= 30:
+            p['gold'] -= 30
+            p['cannons'] += 1
+            bot.answer_callback_query(call.id, "Отлита новая пушка! 💣")
+        else:
+            bot.answer_callback_query(call.id, "Недостаточно золота! ❌")
+        text = f"⛵ **Вы в гавани.** Здесь можно усилить армию.\n💰 Золото: {p['gold']}"
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("Купить солдата (10💰)", callback_data="buy_soldier"),
+            InlineKeyboardButton("Купить пушку (30💰)", callback_data="buy_cannon"),
+            InlineKeyboardButton("Назад", callback_data="main_menu")
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+        
+    elif call.data == "find_island":
+        text = "🏝️ **Обнаружен неизведанный остров!**\nЗащита форта: 15 силы.\n\nОтправить флот на штурм?"
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            InlineKeyboardButton("⚔️ Атаковать!", callback_data="attack_island"),
+            InlineKeyboardButton("🏳️ Отступить", callback_data="main_menu")
+        )
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+        
+    elif call.data == "attack_island":
+        army_power = (p['cannons'] * 5) + p['soldiers']
+        enemy_power = 15
+        
+        if army_power >= enemy_power:
+            p['islands'] += 1
+            p['gold'] += 50
+            if p['soldiers'] > 2: p['soldiers'] -= 2
+            text = "🎉 **Победа!**\nВаша артиллерия разбила стены форта, а пехота захватила остров!\n\n💰 Награда: +50 золота."
+        else:
+            if p['soldiers'] > 4: p['soldiers'] -= 4
+            text = "💥 **Поражение!**\nЗащитники форта потопили лодки десанта. Вы отступили с потерями."
+            
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(InlineKeyboardButton("В главное меню", callback_data="main_menu"))
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-import asyncio
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiohttp import web
+class TinyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
 
-async def on_startup(bot: Bot):
-    asyncio.create_task(dp.start_polling(bot))
-
-def main():
-    app = web.Application()
-    app.on_startup.append(lambda a: on_startup(bot))
-    web.run_app(app, host="0.0.0.0", port=10000)
+def run_server():
+    server = HTTPServer(('0.0.0.0', 10000), TinyServer)
+    server.serve_forever()
 
 if __name__ == "__main__":
-    main()
-
+    threading.Thread(target=run_server, daemon=True).start()
+    print("Бот успешно запущен и готов к колонизации!")
+    bot.infinity_polling()
